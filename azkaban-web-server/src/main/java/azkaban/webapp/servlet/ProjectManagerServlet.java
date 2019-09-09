@@ -104,6 +104,10 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
 
   private static final String PROJECT_DOWNLOAD_BUFFER_SIZE_IN_BYTES =
       "project.download.buffer.size";
+
+  private static final String AZKABAN_FORCE_MULTIPLE_USERS =
+      "azkaban.forceMultipleUsers";
+
   private static final Comparator<Flow> FLOW_ID_COMPARATOR = new Comparator<Flow>() {
     @Override
     public int compare(final Flow f1, final Flow f2) {
@@ -119,6 +123,7 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
   private boolean lockdownCreateProjects = false;
   private boolean lockdownUploadProjects = false;
   private boolean enableQuartz = false;
+  private boolean forceMultipleUsers = false;
 
   @Override
   public void init(final ServletConfig config) throws ServletException {
@@ -146,6 +151,8 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
     this.downloadBufferSize =
         server.getServerProps().getInt(PROJECT_DOWNLOAD_BUFFER_SIZE_IN_BYTES,
             8192);
+
+    this.forceMultipleUsers = server.getServerProps().getBoolean(AZKABAN_FORCE_MULTIPLE_USERS, false);
 
     logger.info("downloadBufferSize: " + this.downloadBufferSize);
   }
@@ -433,7 +440,7 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
     final int from = Integer.valueOf(getParam(req, "start"));
     final int length = Integer.valueOf(getParam(req, "length"));
 
-    final ArrayList<ExecutableFlow> exFlows = new ArrayList<>();
+    final List<ExecutableFlow> exFlows = new ArrayList<>();
     int total = 0;
     try {
       total =
@@ -448,7 +455,7 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
     ret.put("from", from);
     ret.put("length", length);
 
-    final ArrayList<Object> history = new ArrayList<>();
+    final List<Object> history = new ArrayList<>();
     for (final ExecutableFlow flow : exFlows) {
       final HashMap<String, Object> flowInfo = new HashMap<>();
       flowInfo.put("execId", flow.getExecutionId());
@@ -786,8 +793,7 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
   private void ajaxFetchProjectFlows(final Project project,
       final HashMap<String, Object> ret, final HttpServletRequest req)
       throws ServletException {
-    final ArrayList<Map<String, Object>> flowList =
-        new ArrayList<>();
+    final List<Map<String, Object>> flowList = new ArrayList<>();
     for (final Flow flow : project.getFlows()) {
       if (!flow.isEmbeddedFlow()) {
         final HashMap<String, Object> flowObj = new HashMap<>();
@@ -815,8 +821,7 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
       return;
     }
 
-    final ArrayList<Map<String, Object>> nodeList =
-        new ArrayList<>();
+    final List<Map<String, Object>> nodeList = new ArrayList<>();
     for (final Node node : flow.getNodes()) {
       final HashMap<String, Object> nodeObj = new HashMap<>();
       nodeObj.put("id", node.getId());
@@ -832,7 +837,7 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
       nodeList.add(nodeObj);
       final Set<Edge> inEdges = flow.getInEdges(node.getId());
       if (inEdges != null && !inEdges.isEmpty()) {
-        final ArrayList<String> inEdgesList = new ArrayList<>();
+        final List<String> inEdgesList = new ArrayList<>();
         for (final Edge edge : inEdges) {
           inEdgesList.add(edge.getSourceId());
         }
@@ -899,15 +904,15 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
     final String flowId = getParam(req, "flow");
     final Flow flow = project.getFlow(flowId);
 
-    final ArrayList<Node> flowNodes = new ArrayList<>(flow.getNodes());
+    final List<Node> flowNodes = new ArrayList<>(flow.getNodes());
     Collections.sort(flowNodes, NODE_LEVEL_COMPARATOR);
 
-    final ArrayList<Object> nodeList = new ArrayList<>();
+    final List<Object> nodeList = new ArrayList<>();
     for (final Node node : flowNodes) {
       final HashMap<String, Object> nodeObj = new HashMap<>();
       nodeObj.put("id", node.getId());
 
-      final ArrayList<String> dependencies = new ArrayList<>();
+      final List<String> dependencies = new ArrayList<>();
       Collection<Edge> collection = flow.getInEdges(node.getId());
       if (collection != null) {
         for (final Edge edge : collection) {
@@ -915,7 +920,7 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
         }
       }
 
-      final ArrayList<String> dependents = new ArrayList<>();
+      final List<String> dependents = new ArrayList<>();
       collection = flow.getOutEdges(node.getId());
       if (collection != null) {
         for (final Edge edge : collection) {
@@ -1076,8 +1081,7 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
    * this only returns user permissions, but not group permissions and proxy users
    */
   private void ajaxGetPermissions(final Project project, final HashMap<String, Object> ret) {
-    final ArrayList<HashMap<String, Object>> permissions =
-        new ArrayList<>();
+    final List<HashMap<String, Object>> permissions = new ArrayList<>();
     for (final Pair<String, Permission> perm : project.getUserPermissions()) {
       final HashMap<String, Object> permObj = new HashMap<>();
       final String userId = perm.getFirst();
@@ -1092,8 +1096,7 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
 
   private void ajaxGetGroupPermissions(final Project project,
       final HashMap<String, Object> ret) {
-    final ArrayList<HashMap<String, Object>> permissions =
-        new ArrayList<>();
+    final List<HashMap<String, Object>> permissions = new ArrayList<>();
     for (final Pair<String, Permission> perm : project.getGroupPermissions()) {
       final HashMap<String, Object> permObj = new HashMap<>();
       final String userId = perm.getFirst();
@@ -1222,6 +1225,8 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
         final Permission perm = this.getPermissionObject(project, user, Type.ADMIN);
         page.add("userpermission", perm);
 
+        setNeedsMoreUsersIfAppropriate(page, project, session);
+
         final boolean adminPerm = perm.isPermissionSet(Type.ADMIN);
         if (adminPerm) {
           page.add("admin", true);
@@ -1305,7 +1310,7 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
       if (CollectionUtils.isNotEmpty(jobInfo)) {
         page.add("history", jobInfo);
 
-        final ArrayList<Object> dataSeries = new ArrayList<>();
+        final List<Object> dataSeries = new ArrayList<>();
         for (final ExecutableJobInfo info : jobInfo) {
           final Map<String, Object> map = info.toObject();
           dataSeries.add(map);
@@ -1345,6 +1350,8 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
             project.getUsersWithPermission(Type.ADMIN), ","));
         final Permission perm = this.getPermissionObject(project, user, Type.ADMIN);
         page.add("userpermission", perm);
+
+        setNeedsMoreUsersIfAppropriate(page, project, session);
 
         if (perm.isPermissionSet(Type.ADMIN)) {
           page.add("admin", true);
@@ -1412,6 +1419,8 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
         return;
       }
 
+      setNeedsMoreUsersIfAppropriate(page, project, session);
+
       page.add("flowid", flow.getId());
       final Node node = flow.getNode(jobName);
       if (node == null) {
@@ -1432,7 +1441,7 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
         page.add("condition", node.getCondition());
       }
 
-      final ArrayList<String> dependencies = new ArrayList<>();
+      final List<String> dependencies = new ArrayList<>();
       final Set<Edge> inEdges = flow.getInEdges(node.getId());
       if (inEdges != null) {
         for (final Edge dependency : inEdges) {
@@ -1443,7 +1452,7 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
         page.add("dependencies", dependencies);
       }
 
-      final ArrayList<String> dependents = new ArrayList<>();
+      final List<String> dependents = new ArrayList<>();
       final Set<Edge> outEdges = flow.getOutEdges(node.getId());
       if (outEdges != null) {
         for (final Edge dependent : outEdges) {
@@ -1455,7 +1464,7 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
       }
 
       // Resolve property dependencies
-      final ArrayList<String> source = new ArrayList<>();
+      final List<String> source = new ArrayList<>();
       final String nodeSource = node.getPropsSource();
       if (nodeSource != null) {
         source.add(nodeSource);
@@ -1469,8 +1478,7 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
         page.add("properties", source);
       }
 
-      final ArrayList<Pair<String, String>> parameters =
-          new ArrayList<>();
+      final List<Pair<String, String>> parameters = new ArrayList<>();
       // Parameter
       for (final String key : jobProp.getKeySet()) {
         final String value = jobProp.get(key);
@@ -1547,7 +1555,7 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
       page.add("jobid", node.getId());
 
       // Resolve property dependencies
-      final ArrayList<String> inheritProps = new ArrayList<>();
+      final List<String> inheritProps = new ArrayList<>();
       FlowProps parent = flow.getFlowProps(propSource);
       while (parent.getInheritedSource() != null) {
         inheritProps.add(parent.getInheritedSource());
@@ -1557,7 +1565,7 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
         page.add("inheritedproperties", inheritProps);
       }
 
-      final ArrayList<String> dependingProps = new ArrayList<>();
+      final List<String> dependingProps = new ArrayList<>();
       FlowProps child =
           flow.getFlowProps(flow.getNode(jobName).getPropsSource());
       while (!child.getSource().equals(propSource)) {
@@ -1568,8 +1576,7 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
         page.add("dependingproperties", dependingProps);
       }
 
-      final ArrayList<Pair<String, String>> parameters =
-          new ArrayList<>();
+      final List<Pair<String, String>> parameters = new ArrayList<>();
       // Parameter
       for (final String key : prop.getKeySet()) {
         final String value = prop.get(key);
@@ -1613,6 +1620,9 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
 
       page.add("project", project);
       flow = project.getFlow(flowName);
+
+      setNeedsMoreUsersIfAppropriate(page, project, session);
+
       if (flow == null) {
         page.add("errorMsg", "Flow " + flowName + " not found.");
       } else {
@@ -1672,6 +1682,8 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
             "validatorFixLink",
             this.projectManager.getProps().get(
                 ValidatorConfigs.VALIDATOR_AUTO_FIX_PROMPT_LINK_PARAM));
+
+        setNeedsMoreUsersIfAppropriate(page, project, session);
 
         final boolean adminPerm = perm.isPermissionSet(Type.ADMIN);
         if (adminPerm) {
@@ -1974,6 +1986,19 @@ public class ProjectManagerServlet extends LoginAbstractAzkabanServlet {
         flow.setLocked(true);
       }
     }
+  }
+
+  private void setNeedsMoreUsersIfAppropriate(final Page page, final Project project, final Session session) {
+    // See if the project has only one admin user with no admin groups.
+    // If it does AND the forceMultipleUsers flag is set AND the current user has the ability to add
+    // an admin, let's force the user to do so before allowing any execution or scheduling of flows.
+
+    boolean hasEnoughUsersGroups = !this.forceMultipleUsers
+                              || project.getUsersWithPermission(Type.ADMIN).size() > 1
+                              || project.getGroupsWithPermission(Type.ADMIN).size() > 0
+                              || !hasPermission(session.getUser(), Type.ADMIN);
+
+    page.add("hasEnoughUsersGroups", hasEnoughUsersGroups);
   }
 
   private void handleUpload(final HttpServletRequest req, final HttpServletResponse resp,
