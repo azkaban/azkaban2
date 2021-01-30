@@ -91,8 +91,8 @@ public class ExecutorApiGateway {
   }
 
   @VisibleForTesting
-  String createExecutionPath(int execId) {
-    if (!isReverseProxyEnabled) {
+  String createExecutionPath(Integer execId) {
+    if (execId == null || !isReverseProxyEnabled) {
       return "/" + executionResourceName;
     }
     return "/" + executionResourceNameModifier.apply(execId, executionResourceName);
@@ -116,7 +116,7 @@ public class ExecutorApiGateway {
 
       // Ideally we should throw an exception if executionId is null but some existing code
       // (updateExecutions()) expects to call this method with a null executionId.
-      String executionPath = (executionId == null) ? null : createExecutionPath(executionId);
+      String executionPath = createExecutionPath(executionId);
       return callForJsonObjectMap(host, port, executionPath, paramList);
     } catch (final IOException e) {
       throw new ExecutorManagerException(e.getMessage(), e);
