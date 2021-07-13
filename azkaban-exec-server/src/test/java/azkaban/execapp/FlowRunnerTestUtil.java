@@ -194,6 +194,7 @@ public class FlowRunnerTestUtil {
       throws Exception {
     final ExecutableFlow exFlow = FlowRunnerTestUtil
         .prepareExecDir(this.workingDir, this.projectDir, flowName, 1);
+    exFlow.setSubmitUser("submitUser");
     exFlow.setDispatchMethod(DispatchMethod.POLL);
     if (watcher != null) {
       options.setPipelineLevel(pipeline);
@@ -236,6 +237,7 @@ public class FlowRunnerTestUtil {
       throws Exception {
     final Flow flow = this.flowMap.get(flowName);
     final ExecutableFlow exFlow = new ExecutableFlow(this.project, flow);
+    exFlow.setSubmitUser("submitUser");
     return createFromExecutableFlow(eventCollector, exFlow, options, flowParams,
         azkabanProps);
   }
