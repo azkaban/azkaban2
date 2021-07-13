@@ -132,7 +132,7 @@ public class FlowStatusManagerListener implements AzPodStatusListener {
               event.getPodName()));
       logger.error("Unsupported state transition.", transitionException);
       try {
-        finalizeFlowAndDeleteContainer(event);
+        finalizeFlowAndDeleteContainer(event, Status.EXECUTION_STOPPED);
       } catch (Exception deletionException) {
         transitionException.addSuppressed(deletionException);
       }
@@ -213,9 +213,11 @@ public class FlowStatusManagerListener implements AzPodStatusListener {
    *
    * @implNote Flow status check and update is not atomic, details above.
    * @param event pod event
+   * @param finalStatus
    * @return
    */
-  private Optional<Status> compareAndFinalizeFlowStatus(AzPodStatusMetadata event) {
+  private Optional<Status> compareAndFinalizeFlowStatus(AzPodStatusMetadata event,
+      Status finalStatus) {
     requireNonNull(event, "event must not be null");
 
     int executionId = Integer.parseInt(event.getFlowPodMetadata().get().getExecutionId());
@@ -238,7 +240,10 @@ public class FlowStatusManagerListener implements AzPodStatusListener {
       logger.info(format(
           "Flow execution-id %d for pod %s does not have a final status in database and will be "
               + "finalized.", executionId, event.getPodName()));
-      final String reason = "Flow Pod execution was completed.";
+      final String reason = "Flow pod execution was completed.";
+      if (finalStatus == Status.EXECUTION_STOPPED) {
+        executableFlow.setStatus(Status.EXECUTION_STOPPED);
+      }
       ExecutionControllerUtils.finalizeFlow(executorLoader, alerterHolder, executableFlow, reason,
           null);
       // Log event for cases where the flow was not already in a final state
@@ -285,15 +290,26 @@ public class FlowStatusManagerListener implements AzPodStatusListener {
    * Finalize the flow for the given event and delete its container.
    *
    * @param event
+   * @param finalStatus
    */
-  private void finalizeFlowAndDeleteContainer(AzPodStatusMetadata event) {
-    Optional<Status> originalFlowStatus = compareAndFinalizeFlowStatus(event);
+  private void finalizeFlowAndDeleteContainer(AzPodStatusMetadata event,
+      Status finalStatus) {
+    Optional<Status> originalFlowStatus = compareAndFinalizeFlowStatus(event, finalStatus);
     if (originalFlowStatus.isPresent() &&
         !Status.isStatusFinished(originalFlowStatus.get())) {
       logger.warn(format("Flow for pod %s was in the non-final state %s and was finalized",
           event.getPodName(), originalFlowStatus.get()));
     }
     deleteFlowContainer(event);
+  }
+
+  /**
+   * Finalize the flow for the given event and delete its container.
+   *
+   * @param event
+   */
+  private void finalizeFlowAndDeleteContainer(AzPodStatusMetadata event) {
+    finalizeFlowAndDeleteContainer(event, Status.FAILED);
   }
 
   /**
