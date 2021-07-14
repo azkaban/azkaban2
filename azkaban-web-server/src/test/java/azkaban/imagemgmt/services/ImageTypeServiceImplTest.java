@@ -26,12 +26,14 @@ import azkaban.imagemgmt.converters.ImageTypeConverter;
 import azkaban.imagemgmt.daos.ImageTypeDao;
 import azkaban.imagemgmt.daos.ImageTypeDaoImpl;
 import azkaban.imagemgmt.dto.ImageTypeDTO;
+import azkaban.imagemgmt.exception.ImageMgmtException;
 import azkaban.imagemgmt.exception.ImageMgmtInvalidInputException;
 import azkaban.imagemgmt.exception.ImageMgmtValidationException;
 import azkaban.imagemgmt.models.ImageType;
 import azkaban.imagemgmt.utils.ConverterUtils;
 import azkaban.utils.JSONUtils;
 import java.io.IOException;
+import java.util.Optional;
 import org.codehaus.jackson.map.ObjectMapper;
 import org.junit.Assert;
 import org.junit.Before;
@@ -76,8 +78,24 @@ public class ImageTypeServiceImplTest {
   }
 
   @Test
+  public void testFindImageTypeWithOwnersByName() throws Exception {
+    final ImageType imageType = new ImageType();
+    when(this.imageTypeDao.getImageTypeWithOwnershipsByName(any(String.class))).thenReturn
+        ((Optional<ImageType>) Optional.of(imageType));
+    this.imageTypeService.findImageTypeWithOwnersByName("anyString");
+  }
+
+  @Test(expected = ImageMgmtException.class)
+  public void testFindImageTypeWithOwnersByNameFailsWithImageMgmtException() throws Exception {
+    when(this.imageTypeDao.getImageTypeWithOwnershipsByName(any(String.class)))
+        .thenReturn(Optional.empty());
+    this.imageTypeService.findImageTypeWithOwnersByName("anyString");
+  }
+
+  @Test
   public void testCreateImageTypeForConfigs() throws Exception {
-    final String jsonPayload = JSONUtils.readJsonFileAsString("image_management/image_type_configs.json");
+    final String jsonPayload = JSONUtils
+        .readJsonFileAsString("image_management/image_type_configs.json");
     final ImageTypeDTO imageTypeDTO = converterUtils.convertToDTO(jsonPayload, ImageTypeDTO.class);
     imageTypeDTO.setCreatedBy("azkaban");
     imageTypeDTO.setModifiedBy("azkaban");
@@ -95,7 +113,8 @@ public class ImageTypeServiceImplTest {
 
   @Test(expected = ImageMgmtValidationException.class)
   public void testCreateImageTypeInvalidType() throws IOException {
-    final String jsonPayload = JSONUtils.readJsonFileAsString("image_management/invalid_image_type.json");
+    final String jsonPayload = JSONUtils
+        .readJsonFileAsString("image_management/invalid_image_type.json");
     final ImageTypeDTO imageTypeDTO = converterUtils.convertToDTO(jsonPayload, ImageTypeDTO.class);
     imageTypeDTO.setCreatedBy("azkaban");
     imageTypeDTO.setModifiedBy("azkaban");
